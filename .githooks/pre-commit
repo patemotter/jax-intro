@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+#
+# pre-commit hook for JAX Tutorial
+#
+# 1. Sync .md ↔ .ipynb via jupytext for any staged notebook/markdown files.
+# 2. Verify that staged .ipynb files contain cell outputs (i.e., they
+#    haven't been accidentally stripped).
+#
+# Requires: uv, jupytext (dev dependency)
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# 1. Jupytext sync
+# ---------------------------------------------------------------------------
+# Collect staged .md and .ipynb files (Added, Modified, Copied, Renamed).
+staged_md=$(git diff --cached --name-only --diff-filter=ACMR -- '*.md' | grep -E '^[0-9]{2}_.*\.md$' || true)
+staged_ipynb=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ipynb' | grep -E '^[0-9]{2}_.*\.ipynb$' || true)
+
+needs_sync=()
+for f in $staged_md; do
+    ipynb="${f%.md}.ipynb"
+    if [ -f "$ipynb" ]; then
+        needs_sync+=("$ipynb")
+    fi
+done
+for f in $staged_ipynb; do
+    if [ -f "$f" ]; then
+        needs_sync+=("$f")
+    fi
+done
+
+# De-duplicate
+if [ ${#needs_sync[@]} -gt 0 ]; then
+    unique_sync=($(printf '%s\n' "${needs_sync[@]}" | sort -u))
+    echo "[pre-commit] Running jupytext --sync on ${#unique_sync[@]} notebook(s)..."
+    uv run jupytext --sync "${unique_sync[@]}"
+
+    # Re-stage both the .ipynb and .md so the commit includes the synced versions.
+    for nb in "${unique_sync[@]}"; do
+        md="${nb%.ipynb}.md"
+        git add "$nb" "$md"
+    done
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Check that staged .ipynb files contain outputs
+# ---------------------------------------------------------------------------
+# Collect all .ipynb files that will be in this commit.
+all_staged_ipynb=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ipynb' | grep -E '^[0-9]{2}_.*\.ipynb$' || true)
+
+fail=0
+for nb in $all_staged_ipynb; do
+    # Count non-empty "outputs" arrays in the staged version of the file.
+    # git show :file gives the staged (index) content.
+    output_count=$(git show ":$nb" | python3 -c "
+import json, sys
+nb = json.load(sys.stdin)
+count = sum(1 for c in nb.get('cells', []) if c.get('cell_type') == 'code' and c.get('outputs'))
+print(count)
+" 2>/dev/null || echo "0")
+
+    if [ "$output_count" -eq 0 ]; then
+        echo "[pre-commit] ERROR: $nb has no cell outputs."
+        echo "             Notebooks must be committed with outputs intact."
+        echo "             Run the notebook first, then stage it again."
+        fail=1
+    fi
+done
+
+if [ "$fail" -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] Aborting commit - one or more notebooks are missing outputs."
+    exit 1
+fi
+
+echo "[pre-commit] All checks passed."

@@ -1,0 +1,20 @@
+# jupytext config (https://jupytext.readthedocs.io/)
+#
+# Every notebook is paired with a MyST-Markdown sidecar of the same name.
+# The .md is the source of truth: a clean, diff-friendly file you edit in any
+# text editor. The .ipynb is a generated artifact that carries the executed
+# outputs GitHub renders.
+#
+# Editing flow:
+#   - Edit the .md, then rebuild the notebooks from it (markdown -> notebook):
+#       uv run jupytext --to ipynb --execute [0-9]*.md
+#     This always goes md -> ipynb, so the direction is explicit. Avoid
+#     `jupytext --sync`, which picks a direction by file timestamp and can
+#     overwrite your .md if an .ipynb happens to be newer.
+#   - Editing in JupyterLab also works; saving updates both files. Either way,
+#     commit the .md.
+#   - See the README's "Editing Notes" for the full workflow.
+formats = "ipynb,md:myst"
+
+# Don't pollute the .md sidecar or git diffs with jupytext's own version stamp.
+notebook_metadata_filter = "-jupytext.text_representation.jupytext_version"
